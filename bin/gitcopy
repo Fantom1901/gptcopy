@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+# Настройки исключений
+IGNORE_DIRS="node_modules|venv|.git|.idea|.vscode|__pycache__|target|dist|build|.next|.astro|.cache"
+IGNORE_FILES="*.sqlite3|*.pyc|*.exe|*.bin|.DS_Store|package-lock.json|yarn.lock|pnpm-lock.yaml"
+
+show_help() {
+    echo -e "\e[1;34mНАЗВАНИЕ:\e[0m"
+    echo "  gptcopy — консольный инструмент для агрегации кода в буфер обмена."
+    echo -e "\n\e[1;34mОПИСАНИЕ:\e[0m"
+    echo "  Собирает структуру проекта и содержимое файлов в единый блок для LLM."
+    echo -e "\n\e[1;34mИСПОЛЬЗОВАНИЕ:\e[0m"
+    echo "  gptcopy [путь/файлы] [опции]"
+    echo -e "\n\e[1;34mОПЦИИ:\e[0m"
+    echo "  -c, --changed   Копировать только файлы, измененные в Git"
+    echo "  -m, --minify    Удалить пустые строки из кода"
+    echo "  -h, --help      Показать эту справку"
+}
+
+# Определение команды копирования
+get_copy_cmd() {
+    if [[ "$TERM" == "xterm-kitty" ]] && command -v kitten >/dev/null 2>&1; then
+        echo "kitten clipboard"
+    elif command -v wl-copy >/dev/null 2>&1; then
+        echo "wl-copy"
+    elif command -v xclip >/dev/null 2>&1; then
+        echo "xclip -selection clipboard"
+    elif command -v pbcopy >/dev/null 2>&1; then
+        echo "pbcopy"
+    else
+        echo "cat" # Fallback if no clipboard
+    fi
+}
+
+# Обработка аргументов
+ONLY_CHANGED=0
+MINIFY=0
+TARGETS=()
+
+for arg in "$@"; do
+    case $arg in
+        -h|--help) show_help; exit 0 ;;
+        -c|--changed) ONLY_CHANGED=1 ;;
+        -m|--minify) MINIFY=1 ;;
+        *) TARGETS+=("$arg") ;;
+    esac
+done
+
+[[ ${#TARGETS[@]} -eq 0 ]] && TARGETS+=(".")
+
+COPY_CMD=$(get_copy_cmd)
+
+# Основной поток вывода
+{
+    echo "=== СТРУКТУРА ПРОЕКТА ==="
+    if [ "$ONLY_CHANGED" -eq 1 ]; then
+        git status -s 2>/dev/null || echo "Git не инициализирован."
+    else
+        if command -v tree >/dev/null 2>&1; then
+            tree -a -I "$IGNORE_DIRS" "${TARGETS[0]}"
+        else
+            echo "(Утилита tree не установлена)"
+        fi
+    fi
+    echo -e "\n=== ИСХОДНЫЙ КОД ===\n"
+
+    # Сбор списка файлов
+    if [ "$ONLY_CHANGED" -eq 1 ]; then
+        FILES=$(git ls-files -m -o --exclude-standard)
+    else
+        # Генерация find паттернов из списка исключений
+        FIND_EXCL=""
+        IFS='|' read -ra ADDR <<< "$IGNORE_DIRS"
+        for i in "${ADDR[@]}"; do FIND_EXCL="$FIND_EXCL -not -path \"*/$i/*\""; done
+        
+        FILES=$(find "${TARGETS[@]}" -type f -not -path '*/.*' $FIND_EXCL -exec grep -Iq . {} \; -print)
+    fi
+
+    for file in $FILES; do
+        # Определяем язык для Markdown
+        ext="${file##*.}"
+        case "$ext" in
+            js|jsx) lang="javascript" ;;
+            ts|tsx) lang="typescript" ;;
+            css) lang="css" ;;
+            html) lang="html" ;;
+            json) lang="json" ;;
+            py) lang="python" ;;
+            *) lang="text" ;;
+        esac
+
+        echo -e "\e[32m  ->\e[0m Обработка: $file" >&2
+        echo "-------------------------------------------------------------------------------"
+        echo "FILE: $file"
+        echo "-------------------------------------------------------------------------------"
+        echo '```'$lang
+        if [ "$MINIFY" -eq 1 ]; then
+            sed '/^$/d' "$file"
+        else
+            cat "$file"
+        fi
+        echo '```'
+        echo -e "\n"
+    done
+} | $COPY_CMD
+
+echo -e "\e[1;34m::\e[0m \e[32mГотово.\e[0m Данные в буфере обмена."
