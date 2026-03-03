@@ -1,33 +1,57 @@
 #!/usr/bin/env bash
 
-# Настройки исключений (папки разделены через -o -name)
-IGNORE_DIRS="( -name node_modules -o -name venv -o -name .git -o -name .idea -o -name .vscode -o -name __pycache__ -o -name target -o -name dist -o -name build -o -name .next -o -name .astro -o -name .cache )"
-# Для tree оставим старый формат
-TREE_IGNORE="node_modules|venv|.git|.idea|.vscode|__pycache__|target|dist|build|.next|.astro|.cache"
+# Список того, что мы ненавидим
+IGNORE_LIST=(
+    node_modules venv .git .idea .vscode __pycache__
+    target dist build .next .astro .cache
+    package-lock.json pnpm-lock.yaml yarn.lock
+)
+
+# Строка для tree
+TREE_IGNORE="node_modules|venv|.git|.idea|.vscode|__pycache__|target|dist|build|.next|.astro|.cache|package-lock\.json|pnpm-lock\.yaml|yarn\.lock"
+
+# Цвета для справки
+CYAN='\e[1;36m'
+GREEN='\e[1;32m'
+YELLOW='\e[1;33m'
+BLUE='\e[1;34m'
+NC='\e[0m'
 
 show_help() {
-    echo -e "\e[1;34mУТИЛИТА:\e[0m gptcopy v3.0"
-    echo -e "\e[1;34mОПИСАНИЕ:\e[0m Собирает структуру проекта и содержимое файлов в один блок для LLM."
-    echo -e "\n\e[1;34mИСПОЛЬЗОВАНИЕ:\e[0m"
-    echo "  gptcopy [путь] [опции]"
-    echo -e "\n\e[1;34mОПЦИИ:\e[0m"
-    echo "  -c, --changed   Копировать только измененные файлы (через git status)"
-    echo "  -m, --minify    Удалить пустые строки из кода (экономия места)"
-    echo "  -h, --help      Показать эту справку"
-    echo -e "\n\e[1;34mПРИМЕРЫ:\e[0m"
-    echo "  gptcopy .             # Весь текущий каталог"
-    echo "  gptcopy src/ -m       # Папка src с минификацией"
-    echo "  gptcopy -c            # Только то, что ты сейчас правишь"
+    echo -e "${BLUE}🚀 gptcopy${NC} — Подготовка контекста проекта для LLM"
+    echo -e ""
+    echo -e "${YELLOW}ИСПОЛЬЗОВАНИЕ:${NC}"
+    echo -e "  gptcopy [путь] [флаги]"
+    echo -e ""
+    echo -e "${YELLOW}ФЛАГИ:${NC}"
+    echo -e "  ${GREEN}-c, --changed${NC}    Копировать только изменённые файлы (нужен Git)"
+    echo -e "  ${GREEN}-m, --minify${NC}     Удалить пустые строки из кода (экономия токенов)"
+    echo -e "  ${GREEN}-h, --help${NC}       Показать эту красивую справку"
+    echo -e ""
+    echo -e "${YELLOW}ПРИМЕРЫ:${NC}"
+    echo -e "  gptcopy .             # Весь текущий проект"
+    echo -e "  gptcopy src/ -m       # Только папка src с минификацией"
+    echo -e "  gptcopy -c            # Только то, что ты накодил (git diff)"
+    echo -e ""
+    echo -e "${BLUE}📂 ИГНОРИРУЕТСЯ ПО УМОЛЧАНИЮ:${NC}"
+    echo -e "  node_modules, .git, venv, package-lock.json и др."
+    exit 0
 }
 
 get_copy_cmd() {
+    local cmd=""
     if [[ "$TERM" == "xterm-kitty" ]] && command -v kitten >/dev/null 2>&1; then
-        echo "kitten clipboard"
+        cmd="kitten clipboard"
     elif command -v wl-copy >/dev/null 2>&1; then
-        echo "wl-copy"
+        cmd="wl-copy"
     elif command -v xclip >/dev/null 2>&1; then
-        echo "xclip -selection clipboard"
+        cmd="xclip -selection clipboard"
+    fi
+
+    if [[ -n "$cmd" ]]; then
+        echo "$cmd"
     else
+        echo -e "\e[1;33m[!]\e[0m Утилита для копирования не найдена. Вывод в терминал." >&2
         echo "cat"
     fi
 }
@@ -36,17 +60,24 @@ ONLY_CHANGED=0
 MINIFY=0
 TARGETS=()
 
+# Парсинг аргументов
 for arg in "$@"; do
     case $arg in
-        -h|--help) show_help; exit 0 ;;
         -c|--changed) ONLY_CHANGED=1 ;;
-        -m|--minify) MINIFY=1 ;;
-        *) TARGETS+=("$arg") ;;
+        -m|--minify)  MINIFY=1 ;;
+        -h|--help)    show_help ;;
+        *)            TARGETS+=("$arg") ;;
     esac
 done
 
 [[ ${#TARGETS[@]} -eq 0 ]] && TARGETS+=(".")
 COPY_CMD=$(get_copy_cmd)
+
+FIND_IGNORE_ARGS=()
+for item in "${IGNORE_LIST[@]}"; do
+    if [ ${#FIND_IGNORE_ARGS[@]} -gt 0 ]; then FIND_IGNORE_ARGS+=("-o"); fi
+    FIND_IGNORE_ARGS+=("-name" "$item" "-o" "-path" "*/$item/*")
+done
 
 {
     echo "=== PROJECT STRUCTURE ==="
@@ -56,30 +87,32 @@ COPY_CMD=$(get_copy_cmd)
         if command -v tree >/dev/null 2>&1; then
             tree -a -I "$TREE_IGNORE" "${TARGETS[0]}"
         else
-            find "${TARGETS[0]}" -maxdepth 2 -not -path '*/.*'
+            find "${TARGETS[0]}" -maxdepth 2 \( \( "${FIND_IGNORE_ARGS[@]}" \) -prune \) -o -not -path '*/.*' -print
         fi
     fi
+
     echo -e "\n=== SOURCE CODE ===\n"
 
     if [ "$ONLY_CHANGED" -eq 1 ]; then
-        FILES=$(git ls-files -m -o --exclude-standard)
+        git ls-files -m -o --exclude-standard | grep -Ev "$TREE_IGNORE"
     else
-        # Используем -prune, чтобы find ВООБЩЕ не заходил в node_modules
-        FILES=$(find "${TARGETS[@]}" $IGNORE_DIRS -prune -o -type f -not -path '*/.*' -exec grep -Iq . {} \; -print)
-    fi
+        find "${TARGETS[@]}" \( \( "${FIND_IGNORE_ARGS[@]}" \) -prune \) -o -type f -not -path '*/.*' -exec grep -Iq . {} \; -print
+    fi | while read -r file; do
 
-    for file in $FILES; do
+        # Финальный заслон
+        for ignore in "${IGNORE_LIST[@]}"; do
+            if [[ "$file" == *"$ignore"* ]]; then
+                continue 2
+            fi
+        done
+
         echo -e "\e[32m  ->\e[0m Обработка: $file" >&2
         echo "FILE: $file"
         echo '```'
-        if [ "$MINIFY" -eq 1 ]; then
-            sed '/^$/d' "$file"
-        else
-            cat "$file"
-        fi
+        [ "$MINIFY" -eq 1 ] && sed '/^$/d' "$file" || cat "$file"
         echo '```'
         echo -e "\n"
     done
 } | $COPY_CMD
 
-echo -e "\e[1;34m::\e[0m \e[32mГотово.\e[0m Данные в буфере обмена."
+echo -e "\e[1;34m::\e[0m \e[32mГотово.\e[0m"
