@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
-# Настройки исключений
-IGNORE_DIRS="node_modules|venv|.git|.idea|.vscode|__pycache__|target|dist|build|.next|.astro|.cache"
-IGNORE_FILES="*.sqlite3|*.pyc|*.exe|*.bin|.DS_Store|package-lock.json|yarn.lock|pnpm-lock.yaml"
+# Настройки исключений (папки разделены через -o -name)
+IGNORE_DIRS="( -name node_modules -o -name venv -o -name .git -o -name .idea -o -name .vscode -o -name __pycache__ -o -name target -o -name dist -o -name build -o -name .next -o -name .astro -o -name .cache )"
+# Для tree оставим старый формат
+TREE_IGNORE="node_modules|venv|.git|.idea|.vscode|__pycache__|target|dist|build|.next|.astro|.cache"
 
 show_help() {
     echo -e "\e[1;34mУТИЛИТА:\e[0m gptcopy v3.0"
@@ -53,7 +54,7 @@ COPY_CMD=$(get_copy_cmd)
         git status -s 2>/dev/null || echo "Git не инициализирован."
     else
         if command -v tree >/dev/null 2>&1; then
-            tree -a -I "$IGNORE_DIRS" "${TARGETS[0]}"
+            tree -a -I "$TREE_IGNORE" "${TARGETS[0]}"
         else
             find "${TARGETS[0]}" -maxdepth 2 -not -path '*/.*'
         fi
@@ -63,10 +64,8 @@ COPY_CMD=$(get_copy_cmd)
     if [ "$ONLY_CHANGED" -eq 1 ]; then
         FILES=$(git ls-files -m -o --exclude-standard)
     else
-        FIND_EXCL=""
-        IFS='|' read -ra ADDR <<< "$IGNORE_DIRS"
-        for i in "${ADDR[@]}"; do FIND_EXCL="$FIND_EXCL -not -path \"*/$i/*\""; done
-        FILES=$(find "${TARGETS[@]}" -type f -not -path '*/.*' $FIND_EXCL -exec grep -Iq . {} \; -print)
+        # Используем -prune, чтобы find ВООБЩЕ не заходил в node_modules
+        FILES=$(find "${TARGETS[@]}" $IGNORE_DIRS -prune -o -type f -not -path '*/.*' -exec grep -Iq . {} \; -print)
     fi
 
     for file in $FILES; do
