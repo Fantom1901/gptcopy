@@ -6,7 +6,7 @@ mkdir -p "$INSTALL_DIR"
 
 echo ":: Загрузка gptcopy..."
 # Путь к твоему будущему репозиторию (замени USERNAME на свой)
-curl -sSL "https://github.com/Fantom1901/gptcopy/main/bin/gptcopy" -o "$INSTALL_DIR/gptcopy"
+curl -sSL "https://https://github.com/Fantom1901/gptcopy/bin" -o "$INSTALL_DIR/gptcopy"
 chmod +x "$INSTALL_DIR/gptcopy"
 
 # Определение Shell и настройка PATH
