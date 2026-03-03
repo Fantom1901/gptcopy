@@ -6,10 +6,10 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# ПУТИ - теперь жестко привязаны к твоей папке скриптов
+BASE_DIR="$HOME/scripts/gptcopy"
 INSTALL_DIR="$HOME/.local/bin"
-# Определяем, где лежит папка со скриптом
-SCRIPT_PATH="$(dirname "$(readlink -f "$0")")"
-SCRIPT_SRC="$SCRIPT_PATH/bin/gptcopy"
+SCRIPT_SRC="$BASE_DIR/bin/gptcopy"
 SHELL_NAME=$(basename "$SHELL")
 
 # Определяем файл конфига
@@ -39,23 +39,24 @@ fi
 
 echo -e "${BLUE}::${NC} Установка gptcopy..."
 
+# 1. Создаем структуру папок
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$BASE_DIR/bin"
 
-# 2. Проверяем наличие исходника. Если его нет (установка через curl), скачиваем.
+# 2. Проверяем наличие исходника. Если его нет (установка через curl), скачиваем в базу.
 if [ ! -f "$SCRIPT_SRC" ]; then
-    echo -e "${BLUE}::${NC} Исходник не найден локально, скачиваем в $SCRIPT_PATH/bin/..."
-    mkdir -p "$SCRIPT_PATH/bin"
+    echo -e "${BLUE}::${NC} Загрузка исполняемого файла в $SCRIPT_SRC..."
     if ! curl -sSL "https://raw.githubusercontent.com/Fantom1901/gptcopy/main/bin/gptcopy" -o "$SCRIPT_SRC"; then
-        echo -e "${RED}!!${NC} Ошибка: Не удалось скачать файл!"
+        echo -e "${RED}!!${NC} Ошибка: Не удалось скачать gptcopy!"
         exit 1
     fi
 fi
 
-# 3. Создаем символьную ссылку
+# 3. Создаем символьную ссылку (теперь путь всегда верный)
 ln -sf "$SCRIPT_SRC" "$INSTALL_DIR/gptcopy"
 chmod +x "$SCRIPT_SRC"
 
-# 4. Добавляем в PATH если его там нет
+# 4. Добавляем в PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo -e "${BLUE}::${NC} Добавление в PATH ($SHELL_NAME)..."
     if [ "$SHELL_NAME" == "fish" ]; then
@@ -67,6 +68,7 @@ fi
 
 echo -e "--------------------------------------------------"
 echo -e "${GREEN}:: Установка завершена успешно!${NC}"
+echo -e "${BLUE}::${NC} Локация: $SCRIPT_SRC"
 echo -e "${BLUE}::${NC} Чтобы всё заработало, введите:"
 echo -e "   ${GREEN}source $CONF_FILE${NC}"
 echo -e "--------------------------------------------------"
