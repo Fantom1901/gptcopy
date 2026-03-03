@@ -1,26 +1,22 @@
 #!/usr/bin/env bash
 
-# Настройки исключений (что мы НЕ копируем никогда)
+# Настройки исключений
 IGNORE_DIRS="node_modules|venv|.git|.idea|.vscode|__pycache__|target|dist|build|.next|.astro|.cache"
 IGNORE_FILES="*.sqlite3|*.pyc|*.exe|*.bin|.DS_Store|package-lock.json|yarn.lock|pnpm-lock.yaml"
 
 show_help() {
     echo -e "\e[1;34mУТИЛИТА:\e[0m gptcopy v3.0"
-    echo -e "\e[1;34mОПИСАНИЕ:\e[0m Подготавливает контекст проекта для LLM (ChatGPT/Claude/DeepSeek)."
-    echo "          Собирает дерево файлов и их содержимое в Markdown-разметку."
+    echo -e "\e[1;34mОПИСАНИЕ:\e[0m Собирает структуру проекта и содержимое файлов в один блок для LLM."
     echo -e "\n\e[1;34mИСПОЛЬЗОВАНИЕ:\e[0m"
     echo "  gptcopy [путь] [опции]"
     echo -e "\n\e[1;34mОПЦИИ:\e[0m"
-    echo "  -c, --changed   Копировать ТОЛЬКО измененные файлы (из git status)."
-    echo "                  Полезно для правок в больших проектах (экономит токены)."
-    echo "  -m, --minify    Удалять пустые строки из файлов перед копированием."
-    echo "                  Уменьшает объем текста, сохраняя читаемость кода."
-    echo "  -h, --help      Показать эту справку."
+    echo "  -c, --changed   Копировать только измененные файлы (через git status)"
+    echo "  -m, --minify    Удалить пустые строки из кода (экономия места)"
+    echo "  -h, --help      Показать эту справку"
     echo -e "\n\e[1;34mПРИМЕРЫ:\e[0m"
-    echo "  gptcopy .             # Скопировать весь текущий проект"
-    echo "  gptcopy src/ -m       # Скопировать папку src с минификацией"
-    echo "  gptcopy -c            # Скопировать только то, что ты сейчас правишь"
-    echo -e "\n\e[1;34mИГНОРИРУЕТ:\e[0m node_modules, .git, venv, dist, build, lock-файлы и бинарники."
+    echo "  gptcopy .             # Весь текущий каталог"
+    echo "  gptcopy src/ -m       # Папка src с минификацией"
+    echo "  gptcopy -c            # Только то, что ты сейчас правишь"
 }
 
 get_copy_cmd() {
@@ -30,8 +26,6 @@ get_copy_cmd() {
         echo "wl-copy"
     elif command -v xclip >/dev/null 2>&1; then
         echo "xclip -selection clipboard"
-    elif command -v pbcopy >/dev/null 2>&1; then
-        echo "pbcopy"
     else
         echo "cat"
     fi
@@ -56,12 +50,12 @@ COPY_CMD=$(get_copy_cmd)
 {
     echo "=== PROJECT STRUCTURE ==="
     if [ "$ONLY_CHANGED" -eq 1 ]; then
-        git status -s 2>/dev/null || echo "Git not initialized."
+        git status -s 2>/dev/null || echo "Git не инициализирован."
     else
         if command -v tree >/dev/null 2>&1; then
             tree -a -I "$IGNORE_DIRS" "${TARGETS[0]}"
         else
-            echo "(tree utility not installed, skipping tree view)"
+            find "${TARGETS[0]}" -maxdepth 2 -not -path '*/.*'
         fi
     fi
     echo -e "\n=== SOURCE CODE ===\n"
@@ -76,17 +70,9 @@ COPY_CMD=$(get_copy_cmd)
     fi
 
     for file in $FILES; do
-        ext="${file##*.}"
-        case "$ext" in
-            js|jsx) lang="javascript" ;;
-            ts|tsx) lang="typescript" ;;
-            py) lang="python" ;;
-            *) lang="$ext" ;;
-        esac
-
-        echo -e "\e[32m  ->\e[0m Processing: $file" >&2
+        echo -e "\e[32m  ->\e[0m Обработка: $file" >&2
         echo "FILE: $file"
-        echo '```'$lang
+        echo '```'
         if [ "$MINIFY" -eq 1 ]; then
             sed '/^$/d' "$file"
         else
@@ -97,4 +83,4 @@ COPY_CMD=$(get_copy_cmd)
     done
 } | $COPY_CMD
 
-echo -e "\e[1;34m::\e[0m \e[32mDone!\e[0m Context copied to clipboard."
+echo -e "\e[1;34m::\e[0m \e[32mГотово.\e[0m Данные в буфере обмена."
