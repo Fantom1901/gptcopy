@@ -6,7 +6,7 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# ПУТИ - теперь жестко привязаны к твоей папке скриптов
+REPO="Fantom1901/gptcopy"
 BASE_DIR="$HOME/scripts/gptcopy"
 INSTALL_DIR="$HOME/.local/bin"
 SCRIPT_SRC="$BASE_DIR/bin/gptcopy"
@@ -37,24 +37,42 @@ if [[ "$1" == "--uninstall" ]]; then
     uninstall
 fi
 
-echo -e "${BLUE}::${NC} Установка gptcopy..."
+echo -e "${BLUE}::${NC} Установка gptcopy из GitHub Releases..."
 
 # 1. Создаем структуру папок
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BASE_DIR/bin"
 
-# 2. Проверяем наличие исходника. Если его нет (установка через curl), скачиваем в базу.
+# 2. Если бинарника/скрипта нет локально — получаем свежий релиз
 if [ ! -f "$SCRIPT_SRC" ]; then
-    echo -e "${BLUE}::${NC} Загрузка исполняемого файла в $SCRIPT_SRC..."
-    if ! curl -sSL "https://raw.githubusercontent.com/Fantom1901/gptcopy/main/bin/gptcopy" -o "$SCRIPT_SRC"; then
+    echo -e "${BLUE}::${NC} Поиск последнего релиза..."
+
+    # Получаем URL скачивания прямо из GitHub API
+    RELEASE_URL=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep "browser_download_url" | cut -d '"' -f 4)
+
+    # Запасной вариант (fallback): если ассетов в релизе нет, забираем исходник из релиза по тегу
+    if [ -z "$RELEASE_URL" ]; then
+        echo -e "${BLUE}::${NC} Ассеты релиза не найдены, запрашиваем последнюю версию (tag)..."
+        LATEST_TAG=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+        if [ -n "$LATEST_TAG" ]; then
+            RELEASE_URL="https://raw.githubusercontent.com/$REPO/$LATEST_TAG/bin/gptcopy"
+        else
+            echo -e "${RED}!!${NC} Ошибка: Не удалось получить данные о последнем релизе!"
+            exit 1
+        fi
+    fi
+
+    echo -e "${BLUE}::${NC} Загрузка с $RELEASE_URL..."
+    if ! curl -sSL "$RELEASE_URL" -o "$SCRIPT_SRC"; then
         echo -e "${RED}!!${NC} Ошибка: Не удалось скачать gptcopy!"
         exit 1
     fi
 fi
 
-# 3. Создаем символьную ссылку (теперь путь всегда верный)
-ln -sf "$SCRIPT_SRC" "$INSTALL_DIR/gptcopy"
+# 3. Настраиваем исполняемый файл и симлинк
 chmod +x "$SCRIPT_SRC"
+ln -sf "$SCRIPT_SRC" "$INSTALL_DIR/gptcopy"
 
 # 4. Добавляем в PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -69,6 +87,6 @@ fi
 echo -e "--------------------------------------------------"
 echo -e "${GREEN}:: Установка завершена успешно!${NC}"
 echo -e "${BLUE}::${NC} Локация: $SCRIPT_SRC"
-echo -e "${BLUE}::${NC} Чтобы всё заработало, введите:"
+echo -e "${BLUE}::${NC} Чтобы изменения вступили в силу, введите:"
 echo -e "   ${GREEN}source $CONF_FILE${NC}"
 echo -e "--------------------------------------------------"
