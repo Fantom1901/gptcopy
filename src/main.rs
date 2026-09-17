@@ -206,7 +206,7 @@ fn get_clipboard_process() -> Option<ProcessCommand> {
     return Some(cmd);
   }
 
-  if env::var("WALAND_DISPLAY").is_ok() {
+  if env::var("WAYLAND_DISPLAY").is_ok() {
     return Some(ProcessCommand::new("wl-copy"));
   }
 
