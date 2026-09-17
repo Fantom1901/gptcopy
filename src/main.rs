@@ -325,7 +325,7 @@ fn main() {
       if cli.xml {
         output.push_str("<file path=\"");
         output.push_str(&file_path.to_string_lossy());
-        output.push_str("\">n");
+        output.push_str("\">\n");
       } else {
         output.push_str("FILE: ");
         output.push_str(&file_path.to_string_lossy());
