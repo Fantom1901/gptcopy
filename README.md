@@ -1,5 +1,25 @@
 # 🚀 gptcopy
 
+<p align="center">
+  <!-- Версия и Лицензия -->
+  <a href="https://github.com/Fantom1901/gptcopy/releases"><img src="https://img.shields.io/github/v/release/Fantom1901/gptcopy?style=flat-square&color=blue" alt="Latest Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Fantom1901/gptcopy?style=flat-square&color=green" alt="License"></a>
+
+  <!-- Язык и Стек -->
+  <img src="https://img.shields.io/badge/Language-Rust-orange?style=flat-square&logo=rust" alt="Rust">
+  <img src="https://img.shields.io/badge/Type-CLI-black?style=flat-square&logo=gnu-bash&logoColor=white" alt="CLI">
+  <img src="https://img.shields.io/badge/LLM-Context_Generator-purple?style=flat-square&logo=openai&logoColor=white" alt="LLM Context">
+  <img src="https://img.shields.io/badge/OS-Linux-yellow?style=flat-square&logo=linux&logoColor=black" alt="Linux">
+
+  <br>
+
+  <!-- Интеграции и Поддержка Буфера -->
+  <img src="https://img.shields.io/badge/Display-Wayland-red?style=flat-square&logo=wayland&logoColor=white" alt="Wayland">
+  <img src="https://img.shields.io/badge/Display-X11-blueviolet?style=flat-square" alt="X11">
+  <img src="https://img.shields.io/badge/Terminal-Kitty-111111?style=flat-square" alt="Kitty Terminal">
+  <img src="https://img.shields.io/badge/Clipboard-wl--clipboard%20%7C%20xclip-informational?style=flat-square" alt="Clipboard">
+</p>
+
 **gptcopy** — консольная утилита на **Rust** для быстрой подготовки контекста проекта для LLM: ChatGPT, Claude, DeepSeek и других моделей.
 
 Утилита сканирует проект, формирует его структуру и содержимое текстовых файлов в единый контекст, после чего автоматически копирует результат в системный буфер обмена.
