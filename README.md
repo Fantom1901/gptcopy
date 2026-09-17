@@ -1040,8 +1040,20 @@ gptcopy completions zsh
 gptcopy completions fish
 ```
 
----
+## Производительность
 
+* **Время выполнения:** ~3.1 мс
+* **Ускорение:** ~6.7x быстрее 
+
+Замер производительности с помощью `hyperfine`:
+
+```bash
+Benchmark 1: ./target/release/gptcopy .
+  Time (mean ± σ):       3.1 ms ±   0.3 ms    [User: 1.0 ms, System: 2.0 ms]
+  Range (min … max):     2.7 ms …   5.1 ms    874 runs
+
+```
+---
 ## 📄 Лицензия
 
 Проект распространяется под лицензией **GNU General Public License v3.0 (GPLv3)**.

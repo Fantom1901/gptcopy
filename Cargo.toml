@@ -1,8 +1,12 @@
 [package]
 name = "gptcopy"
-version = "2.0.0"
+version = "2.1.1"
 edition = "2024"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 clap_complete = "4.5"
+ignore = "0.4"
+
+[profile.release]
+debug = true

@@ -4,6 +4,8 @@ use std::{env, fs, io};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
+use std::collections::HashSet;
+
 
 const IGNORE_LIST: &[&str] = &[
   "node_modules", "venv", ".venv", ".git", ".idea", ".vscode", "__pycache__",
@@ -58,32 +60,29 @@ enum Commands {
   }
 }
 
-fn is_ignored(path: &Path, custom_ignores: &[String]) -> bool {
+fn is_ignored(path: &Path, custom_ignores: &HashSet<String>) -> bool {
   if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-    if IGNORE_LIST.contains(&name) {
-      return true;
-    }
-    if custom_ignores.iter().any(|ig| ig == name) {
+    if custom_ignores.contains(name) {
       return true;
     }
   }
   false
 }
 
-fn load_gitignore(dir: &Path) -> Vec<String> {
+fn build_ignore_set(dir: &Path) -> HashSet<String> {
+  let mut set: HashSet<String> = IGNORE_LIST.iter().map(|s| s.to_string()).collect();
+
   let gitignore_path = dir.join(".gitignore");
-  let mut ignores = Vec::new();
   if let Ok(content) = fs::read_to_string(gitignore_path) {
     for line in content.lines() {
       let trimmed = line.trim();
       if !trimmed.is_empty() && !trimmed.starts_with('#') {
-        // Убираем слеши в начале и конце для простого сопоставления по имени
         let clean = trimmed.trim_matches('/');
-        ignores.push(clean.to_string());
+        set.insert(clean.to_string());
       }
     }
   }
-  ignores
+  set
 }
 
 fn is_text_file(path: &Path) -> bool {
@@ -111,14 +110,18 @@ fn matches_extension(path: &Path, extensions: &[String]) -> bool {
 }
 
 fn scan_for_secrets(path: &Path, content: &str) {
-  let lower_content = content.to_lowercase();
   for pattern in SECRET_PATTERNS {
-    if lower_content.contains(&pattern.to_lowercase()) {
-      eprintln!(
-        "\x1b[1;31m[ПРЕДУПРЕЖДЕНИЕ]\x1b[0m Файл \x1b[1m{}\x1b[0m может содержать секреты/ключи! (Найдено: '{}')",
-        path.display(),
-        pattern
-      );
+    let pattern_lower = pattern.to_lowercase();
+
+    for line in content.lines() {
+      if line.to_ascii_lowercase().contains(&pattern_lower) {
+        eprintln!(
+          "\x1b[1;31m[ПРЕДУПРЕЖДЕНИЕ]\x1b[0m Файл \x1b[1m{}\x1b[0m может содержать секреты! (Найдено: '{}')",
+          path.display(),
+          pattern
+        );
+      }
+      break
     }
   }
 }
@@ -127,29 +130,34 @@ fn collect_files(
   dir: &Path,
   files: &mut Vec<PathBuf>,
   extensions: &[String],
-  custom_ignores: &[String],
+  custom_ignores: &HashSet<String>,
 ) {
-  if let Ok(entries) = fs::read_dir(dir) {
-    for entry in entries.flatten() {
-      let path = entry.path();
+  let Ok(entries) = fs::read_dir(dir) else { return; };
 
-      if is_ignored(&path, custom_ignores) {
-        continue;
-      }
+  for entry in entries.flatten() {
+    let file_name = entry.file_name();
+    let name_str = file_name.to_string_lossy();
 
-      if path.is_dir() {
-        collect_files(&path, files, extensions, custom_ignores);
-      } else if path.is_file()
-        && is_text_file(&path)
-        && matches_extension(&path, extensions)
-      {
+    if custom_ignores.contains(name_str.as_ref()) {
+      continue;
+    }
+
+    let Ok(file_type) = entry.file_type() else { continue; };
+
+    let path = entry.path();
+
+    if file_type.is_dir() {
+      collect_files(&path, files, extensions, custom_ignores);
+    } else if file_type.is_file() {
+      if matches_extension(&path, extensions) && is_text_file(&path) {
         files.push(path);
       }
     }
   }
 }
 
-fn print_tree(dir: &Path, prefix: String, out: &mut String, custom_ignores: &[String]) {
+
+fn print_tree(dir: &Path, prefix: &mut String, out: &mut String, custom_ignores: &HashSet<String>) {
   if is_ignored(dir, custom_ignores) {
     return;
   }
@@ -169,35 +177,44 @@ fn print_tree(dir: &Path, prefix: String, out: &mut String, custom_ignores: &[St
       let pointer = if is_last { "└── " } else { "├── " };
       let name = path.file_name().unwrap_or_default().to_string_lossy();
 
-      out.push_str(&format!("{}{}{}\n", prefix, pointer, name));
+      out.push_str(prefix);
+      out.push_str(pointer);
+      out.push_str(&name);
+      out.push_str("\n");
 
       if path.is_dir() {
-        let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
-        print_tree(path, new_prefix, out, custom_ignores);
+        let len = prefix.len();
+
+        if is_last {
+          prefix.push_str("    ")
+        } else {
+          prefix.push_str("│   ")
+        }
+
+        print_tree(&path, prefix, out, custom_ignores);
+
+        prefix.truncate(len)
       }
     }
   }
 }
 
 fn get_clipboard_process() -> Option<ProcessCommand> {
-  let term = env::var("TERM").unwrap_or_default();
-
-  if term == "xterm-kitty" && ProcessCommand::new("kitten").arg("--version").output().is_ok() {
+  if env::var("KITTY_PID").is_ok() || env::var("TERM").map_or(false, |t| t == "xterm-kitty") {
     let mut cmd = ProcessCommand::new("kitten");
     cmd.arg("clipboard");
     return Some(cmd);
   }
 
-  if ProcessCommand::new("wl-copy").arg("--version").output().is_ok() {
+  if env::var("WALAND_DISPLAY").is_ok() {
     return Some(ProcessCommand::new("wl-copy"));
   }
 
-  if ProcessCommand::new("xclip").arg("-version").output().is_ok() {
+  if env::var("DISPLAY").is_ok() {
     let mut cmd = ProcessCommand::new("xclip");
     cmd.args(["-selection", "clipboard"]);
     return Some(cmd);
   }
-
   None
 }
 
@@ -232,9 +249,9 @@ fn main() {
   };
 
   let root_target = &targets[0];
-  let custom_ignores = load_gitignore(root_target);
+  let custom_ignores = build_ignore_set(root_target);
 
-  let mut output = String::new();
+  let mut output = String::with_capacity(1024 * 1024);
 
   // 1. СТРУКТУРА ПРОЕКТА
   if cli.xml {
@@ -252,8 +269,10 @@ fn main() {
       _ => output.push_str("Git не инициализирован\n"),
     }
   } else {
-    output.push_str(&format!("{}\n", root_target.display()));
-    print_tree(root_target, "".to_string(), &mut output, &custom_ignores);
+    output.push_str(&root_target.to_string_lossy());
+    output.push_str("\n");
+    let mut prefix = String::new();
+    print_tree(root_target, &mut prefix, &mut output, &custom_ignores);
   }
 
   if cli.xml {
@@ -304,14 +323,19 @@ fn main() {
       scan_for_secrets(file_path, &content);
 
       if cli.xml {
-        output.push_str(&format!("<file path=\"{}\">\n", file_path.display()));
+        output.push_str("<file path=\"");
+        output.push_str(&file_path.to_string_lossy());
+        output.push_str("\">n");
       } else {
-        output.push_str(&format!("FILE: {}\n```\n", file_path.display()));
+        output.push_str("FILE: ");
+        output.push_str(&file_path.to_string_lossy());
+        output.push_str("\n```\n");
       }
 
       if cli.minify {
         for line in content.lines() {
-          if !line.trim().is_empty() {
+          let trimmed = line.trim();
+          if !trimmed.is_empty() {
             output.push_str(line);
             output.push('\n');
           }
