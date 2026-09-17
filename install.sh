@@ -19,9 +19,34 @@ case "$SHELL_NAME" in
     *)    CONF_FILE="$HOME/.bashrc" ;;
 esac
 
+# 5. Генерация автодополнений для шелла
+echo -e "${BLUE}::${NC} Генерация автодополнений для $SHELL_NAME..."
+case "$SHELL_NAME" in
+    fish)
+        COMP_DIR="$HOME/.config/fish/completions"
+        mkdir -p "$COMP_DIR"
+        "$INSTALL_DIR/gptcopy" completions fish > "$COMP_DIR/gptcopy.fish"
+        ;;
+    zsh)
+        COMP_DIR="$HOME/.zsh/completion"
+        mkdir -p "$COMP_DIR"
+        "$INSTALL_DIR/gptcopy" completions zsh > "$COMP_DIR/_gptcopy"
+        ;;
+    bash)
+        COMP_DIR="$HOME/.local/share/bash-completion/completions"
+        mkdir -p "$COMP_DIR"
+        "$INSTALL_DIR/gptcopy" completions bash > "$COMP_DIR/gptcopy"
+        ;;
+esac
+
 uninstall() {
     echo -e "${BLUE}::${NC} Удаление gptcopy..."
     rm -f "$INSTALL_DIR/gptcopy"
+
+    # Удаление автодополнений
+      rm -f "$HOME/.config/fish/completions/gptcopy.fish"
+      rm -f "$HOME/.zsh/completion/_gptcopy"
+      rm -f "$HOME/.local/share/bash-completion/completions/gptcopy"
 
     if [ -f "$CONF_FILE" ]; then
         sed -i '/gptcopy/d' "$CONF_FILE"

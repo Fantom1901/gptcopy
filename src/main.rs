@@ -1,7 +1,9 @@
+use clap::{Command, CommandFactory, Parser, Subcommand, ValueHint};
+use clap_complete::{ generate, Shell};
 use std::{env, fs, io};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command as ProcessCommand, Stdio};
 
 const IGNORE_LIST: &[&str] = &[
   "node_modules", "venv", ".venv", ".git", ".idea", ".vscode", "__pycache__",
@@ -17,35 +19,43 @@ const SECRET_PATTERNS: &[&str] = &[
   "apikey",
   "secret_key",
   "aws_access_key_id",
-  "ghp_", // GitHub Personal Access Token
+  "ghp_",
 ];
 
-struct Config {
-  only_changed: bool,
-  minify: bool,
-  use_xml: bool,
-  extensions: Vec<String>,
+#[derive(Parser)]
+#[command(
+  name = "gptcopy",
+  version,
+  about = "Подготовка контекста проекта для LLM",
+  long_about = None
+)]
+struct Cli {
+  #[command(subcommand)]
+  command: Option<Commands>,
+
+  #[arg(value_hint = ValueHint::AnyPath)]
   targets: Vec<PathBuf>,
+
+  #[arg(short, long)]
+  changed: bool,
+
+  #[arg(short, long)]
+  minify: bool,
+
+  #[arg(short = 'x', long)]
+  xml: bool,
+
+  #[arg(short, long, value_delimiter = ',')]
+  ext: Vec<String>,
+
 }
 
-fn show_help() {
-  println!("\x1b[1;34m🚀 gptcopy\x1b[0m — Подготовка контекста проекта для LLM (Rust edition)");
-  println!();
-  println!("\x1b[1;33mИСПОЛЬЗОВАНИЕ:\x1b[0m");
-  println!("  gptcopy [пути] [флаги]");
-  println!();
-  println!("\x1b[1;33mФЛАГИ:\x1b[0m");
-  println!("  \x1b[1;32m-c, --changed\x1b[0m       Копировать только изменённые файлы (нужен Git)");
-  println!("  \x1b[1;32m-m, --minify\x1b[0m        Удалить пустые строки из кода (экономия токенов)");
-  println!("  \x1b[1;32m-x, --xml\x1b[0m           Форматировать контекст в XML (отлично для Claude/DeepSeek)");
-  println!("  \x1b[1;32m-e, --ext <exts>\x1b[0m    Фильтр по расширениям через запятую (напр. -e rs,toml)");
-  println!("  \x1b[1;32m-h, --help\x1b[0m          Показать эту справку");
-  println!();
-  println!("\x1b[1;33mПРИМЕРЫ:\x1b[0m");
-  println!("  gptcopy .                   # Весь текущий проект");
-  println!("  gptcopy src/ -m -x          # Папка src, минификация, XML разметка");
-  println!("  gptcopy . -e rs,toml        # Только файлы .rs и .toml");
-  println!("  gptcopy -c                  # Только git diff");
+#[derive(Subcommand)]
+enum Commands {
+  Completions {
+    #[arg(value_enum)]
+    shell: Shell,
+  }
 }
 
 fn is_ignored(path: &Path, custom_ignores: &[String]) -> bool {
@@ -60,7 +70,6 @@ fn is_ignored(path: &Path, custom_ignores: &[String]) -> bool {
   false
 }
 
-// Простой чтец местного .gitignore
 fn load_gitignore(dir: &Path) -> Vec<String> {
   let gitignore_path = dir.join(".gitignore");
   let mut ignores = Vec::new();
@@ -114,7 +123,12 @@ fn scan_for_secrets(path: &Path, content: &str) {
   }
 }
 
-fn collect_files(dir: &Path, files: &mut Vec<PathBuf>, config: &Config, custom_ignores: &[String]) {
+fn collect_files(
+  dir: &Path,
+  files: &mut Vec<PathBuf>,
+  extensions: &[String],
+  custom_ignores: &[String],
+) {
   if let Ok(entries) = fs::read_dir(dir) {
     for entry in entries.flatten() {
       let path = entry.path();
@@ -124,10 +138,10 @@ fn collect_files(dir: &Path, files: &mut Vec<PathBuf>, config: &Config, custom_i
       }
 
       if path.is_dir() {
-        collect_files(&path, files, config, custom_ignores);
+        collect_files(&path, files, extensions, custom_ignores);
       } else if path.is_file()
         && is_text_file(&path)
-        && matches_extension(&path, &config.extensions)
+        && matches_extension(&path, extensions)
       {
         files.push(path);
       }
@@ -165,21 +179,21 @@ fn print_tree(dir: &Path, prefix: String, out: &mut String, custom_ignores: &[St
   }
 }
 
-fn get_clipboard_process() -> Option<Command> {
+fn get_clipboard_process() -> Option<ProcessCommand> {
   let term = env::var("TERM").unwrap_or_default();
 
-  if term == "xterm-kitty" && Command::new("kitten").arg("--version").output().is_ok() {
-    let mut cmd = Command::new("kitten");
+  if term == "xterm-kitty" && ProcessCommand::new("kitten").arg("--version").output().is_ok() {
+    let mut cmd = ProcessCommand::new("kitten");
     cmd.arg("clipboard");
     return Some(cmd);
   }
 
-  if Command::new("wl-copy").arg("--version").output().is_ok() {
-    return Some(Command::new("wl-copy"));
+  if ProcessCommand::new("wl-copy").arg("--version").output().is_ok() {
+    return Some(ProcessCommand::new("wl-copy"));
   }
 
-  if Command::new("xclip").arg("-version").output().is_ok() {
-    let mut cmd = Command::new("xclip");
+  if ProcessCommand::new("xclip").arg("-version").output().is_ok() {
+    let mut cmd = ProcessCommand::new("xclip");
     cmd.args(["-selection", "clipboard"]);
     return Some(cmd);
   }
@@ -198,61 +212,39 @@ fn expand_tilde(path: &Path) -> PathBuf {
   path.to_owned()
 }
 
+fn print_completions<G: clap_complete::Generator>(generator: G, cmd: &mut Command) {
+  generate(generator, cmd, cmd.get_name().to_string(), &mut io::stdout());
+}
+
 fn main() {
-  let args: Vec<String> = env::args().skip(1).collect();
-  let mut config = Config {
-    only_changed: false,
-    minify: false,
-    use_xml: false,
-    extensions: Vec::new(),
-    targets: Vec::new(),
+  let cli = Cli::parse();
+
+  if let Some(Commands::Completions { shell }) = cli.command {
+    let mut cmd = Cli::command();
+    print_completions(shell, &mut cmd);
+    return;
+  }
+
+  let targets = if cli.targets.is_empty() {
+    vec![PathBuf::from(".")]
+  } else {
+    cli.targets.into_iter().map(|p| expand_tilde(&p)).collect()
   };
 
-  let mut i = 0;
-  while i < args.len() {
-    match args[i].as_str() {
-      "-c" | "--changed" => config.only_changed = true,
-      "-m" | "--minify" => config.minify = true,
-      "-x" | "--xml" => config.use_xml = true,
-      "-e" | "--ext" => {
-        if i + 1 < args.len() {
-          i += 1;
-          config.extensions = args[i]
-            .split(',')
-            .map(|s| s.trim().trim_start_matches('.').to_string())
-            .collect();
-        }
-      }
-      "-h" | "--help" => {
-        show_help();
-        return;
-      }
-      _ => {
-        let raw_path = PathBuf::from(&args[i]);
-        config.targets.push(expand_tilde(&raw_path));
-      }
-    }
-    i += 1;
-  }
-
-  if config.targets.is_empty() {
-    config.targets.push(PathBuf::from("."));
-  }
-
-  let root_target = &config.targets[0];
+  let root_target = &targets[0];
   let custom_ignores = load_gitignore(root_target);
 
   let mut output = String::new();
 
   // 1. СТРУКТУРА ПРОЕКТА
-  if config.use_xml {
+  if cli.xml {
     output.push_str("<project_structure>\n");
   } else {
     output.push_str("=== PROJECT STRUCTURE ===\n");
   }
 
-  if config.only_changed {
-    let git_status = Command::new("git").args(["status", "-s"]).output();
+  if cli.changed {
+    let git_status = ProcessCommand::new("git").args(["status", "-s"]).output();
     match git_status {
       Ok(out) if out.status.success() => {
         output.push_str(&String::from_utf8_lossy(&out.stdout));
@@ -264,7 +256,7 @@ fn main() {
     print_tree(root_target, "".to_string(), &mut output, &custom_ignores);
   }
 
-  if config.use_xml {
+  if cli.xml {
     output.push_str("</project_structure>\n\n<source_code>\n");
   } else {
     output.push_str("\n=== SOURCE CODE ===\n\n");
@@ -273,8 +265,8 @@ fn main() {
   // 2. СБОР ФАЙЛОВ
   let mut files_to_process: Vec<PathBuf> = Vec::new();
 
-  if config.only_changed {
-    let git_files = Command::new("git")
+  if cli.changed {
+    let git_files = ProcessCommand::new("git")
       .args(["ls-files", "-m", "-o", "--exclude-standard"])
       .output();
 
@@ -284,20 +276,20 @@ fn main() {
         let path = PathBuf::from(line);
         if !is_ignored(&path, &custom_ignores)
           && path.is_file()
-          && matches_extension(&path, &config.extensions)
+          && matches_extension(&path, &cli.ext)
         {
           files_to_process.push(path);
         }
       }
     }
   } else {
-    for target in &config.targets {
+    for target in &targets {
       if target.is_file() {
-        if !is_ignored(target, &custom_ignores) && matches_extension(target, &config.extensions) {
+        if !is_ignored(target, &custom_ignores) && matches_extension(target, &cli.ext) {
           files_to_process.push(target.clone());
         }
       } else if target.is_dir() {
-        collect_files(target, &mut files_to_process, &config, &custom_ignores);
+        collect_files(target, &mut files_to_process, &cli.ext, &custom_ignores);
       }
     }
   }
@@ -311,13 +303,13 @@ fn main() {
       // Проверка на секреты
       scan_for_secrets(file_path, &content);
 
-      if config.use_xml {
+      if cli.xml {
         output.push_str(&format!("<file path=\"{}\">\n", file_path.display()));
       } else {
         output.push_str(&format!("FILE: {}\n```\n", file_path.display()));
       }
 
-      if config.minify {
+      if cli.minify {
         for line in content.lines() {
           if !line.trim().is_empty() {
             output.push_str(line);
@@ -331,7 +323,7 @@ fn main() {
         }
       }
 
-      if config.use_xml {
+      if cli.xml {
         output.push_str("</file>\n\n");
       } else {
         output.push_str("```\n\n");
@@ -339,7 +331,7 @@ fn main() {
     }
   }
 
-  if config.use_xml {
+  if cli.xml {
     output.push_str("</source_code>\n");
   }
 
