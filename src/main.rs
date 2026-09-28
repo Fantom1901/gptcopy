@@ -120,8 +120,8 @@ fn scan_for_secrets(path: &Path, content: &str) {
           path.display(),
           pattern
         );
+        break;
       }
-      break
     }
   }
 }
