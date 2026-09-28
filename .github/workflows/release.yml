@@ -19,15 +19,13 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Package binary
-        run: |
-          cd target/release
-          tar -czvf gptcopy-linux-amd64.tar.gz gptcopy
+      - name: Build release binary
+        run: cargo build --release --locked
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/gptcopy-linux-amd64.tar.gz
+          files: target/release/gptcopy
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
